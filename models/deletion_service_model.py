@@ -41,4 +41,3 @@ class Deletion:
                 await asyncio.sleep(PROCESS_WAIT_TIME)
             except:
                 traceback.print_exc()
-                pass

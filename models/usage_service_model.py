@@ -17,9 +17,9 @@ class UsageService:
     def update_usage(self, tokens_used):
         tokens_used = int(tokens_used)
         price = (tokens_used / 1000) * 0.02
-        print("This request cost " + str(price) + " credits")
+        print(f"This request cost {str(price)} credits")
         usage = self.get_usage()
-        print("The current usage is " + str(usage) + " credits")
+        print(f"The current usage is {str(usage)} credits")
         with self.usage_file_path.open("w") as f:
             f.write(str(usage + float(price)))
             f.close()

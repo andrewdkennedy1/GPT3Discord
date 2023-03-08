@@ -262,7 +262,7 @@ class Model:
     def presence_penalty(self, value):
         if int(value) < 0:
             raise ValueError(
-                "presence_penalty must be greater than 0, it is currently " + str(value)
+                f"presence_penalty must be greater than 0, it is currently {str(value)}"
             )
         self._presence_penalty = value
 
@@ -311,18 +311,15 @@ class Model:
         """
         Sends a summary request to the OpenAI API
         """
-        summary_request_text = []
-        summary_request_text.append(
-            "The following is a conversation instruction set and a conversation"
-            " between two people, a Human, and GPTie. Firstly, determine the Human's name from the conversation history, then summarize the conversation. Do not summarize the instructions for GPTie, only the conversation. Summarize the conversation in a detailed fashion. If Human mentioned their name, be sure to mention it in the summary. Pay close attention to things the Human has told you, such as personal details."
-        )
-        summary_request_text.append(prompt + "\nDetailed summary of conversation: \n")
-
+        summary_request_text = [
+            "The following is a conversation instruction set and a conversation between two people, a Human, and GPTie. Firstly, determine the Human's name from the conversation history, then summarize the conversation. Do not summarize the instructions for GPTie, only the conversation. Summarize the conversation in a detailed fashion. If Human mentioned their name, be sure to mention it in the summary. Pay close attention to things the Human has told you, such as personal details.",
+            prompt + "\nDetailed summary of conversation: \n",
+        ]
         summary_request_text = "".join(summary_request_text)
 
         tokens = self.usage_service.count_tokens(summary_request_text)
 
-        print("The summary request will use " + str(tokens) + " tokens.")
+        print(f"The summary request will use {str(tokens)} tokens.")
         print(f"{self.max_tokens - tokens} is the remaining that we will use.")
 
         async with aiohttp.ClientSession() as session:
@@ -373,24 +370,20 @@ class Model:
                 + str(len(prompt))
             )
 
-        print("The prompt about to be sent is " + prompt)
+        print(f"The prompt about to be sent is {prompt}")
 
         async with aiohttp.ClientSession() as session:
             payload = {
                 "model": self.model,
                 "prompt": prompt,
-                "temperature": self.temp if not temp_override else temp_override,
-                "top_p": self.top_p if not top_p_override else top_p_override,
-                "max_tokens": self.max_tokens - tokens
-                if not max_tokens_override
-                else max_tokens_override,
-                "presence_penalty": self.presence_penalty
-                if not presence_penalty_override
-                else presence_penalty_override,
-                "frequency_penalty": self.frequency_penalty
-                if not frequency_penalty_override
-                else frequency_penalty_override,
-                "best_of": self.best_of if not best_of_override else best_of_override,
+                "temperature": temp_override or self.temp,
+                "top_p": top_p_override or self.top_p,
+                "max_tokens": max_tokens_override or self.max_tokens - tokens,
+                "presence_penalty": presence_penalty_override
+                or self.presence_penalty,
+                "frequency_penalty": frequency_penalty_override
+                or self.frequency_penalty,
+                "best_of": best_of_override or self.best_of,
             }
             headers = {"Authorization": f"Bearer {self.openai_key}"}
             async with session.post(
@@ -409,8 +402,7 @@ class Model:
         words = len(prompt.split(" "))
         if words < 3 or words > 75:
             raise ValueError(
-                "Prompt must be greater than 3 words and less than 75, it is currently "
-                + str(words)
+                f"Prompt must be greater than 3 words and less than 75, it is currently {words}"
             )
 
         # print("The prompt about to be sent is " + prompt)
@@ -441,22 +433,13 @@ class Model:
                         "image", f, filename="file.png", content_type="image/png"
                     )
 
-                    async with session.post(
-                        "https://api.openai.com/v1/images/variations",
-                        headers={
-                            "Authorization": "Bearer " + self.openai_key,
-                        },
-                        data=data,
-                    ) as resp:
+                    async with session.post("https://api.openai.com/v1/images/variations", headers={"Authorization": f"Bearer {self.openai_key}"}, data=data) as resp:
                         response = await resp.json()
 
         print(response)
         print("JUST PRINTED THE RESPONSE")
 
-        image_urls = []
-        for result in response["data"]:
-            image_urls.append(result["url"])
-
+        image_urls = [result["url"] for result in response["data"]]
         # For each image url, open it as an image object using PIL
         images = await asyncio.get_running_loop().run_in_executor(
             None,

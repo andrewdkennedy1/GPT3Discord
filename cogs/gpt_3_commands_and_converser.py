@@ -156,7 +156,7 @@ class GPT3ComCon(discord.Cog, name="GPT3ComCon"):
             check_guilds=[],
             delete_existing=True,
         )
-        print(f"The debug channel was acquired and commands registered")
+        print("The debug channel was acquired and commands registered")
 
     @add_to_group("system")
     @discord.slash_command(
@@ -174,7 +174,7 @@ class GPT3ComCon(discord.Cog, name="GPT3ComCon"):
 
         # Attempt to convert the input usage value into a float
         try:
-            usage = float(usage_amount)
+            usage = usage_amount
             self.usage_service.set_usage(usage)
             await ctx.respond(f"Set the usage to {usage}")
         except:
@@ -213,7 +213,7 @@ class GPT3ComCon(discord.Cog, name="GPT3ComCon"):
         return (cond1) and cond2
 
     async def end_conversation(self, message, opener_user_id=None):
-        normalized_user_id = opener_user_id if opener_user_id else message.author.id
+        normalized_user_id = opener_user_id or message.author.id
         self.conversating_users.pop(normalized_user_id)
 
         await message.reply(
@@ -234,7 +234,6 @@ class GPT3ComCon(discord.Cog, name="GPT3ComCon"):
                 await thread.edit(name="Closed-GPT")
             except:
                 traceback.print_exc()
-                pass
 
     async def send_help_text(self, ctx):
         embed = discord.Embed(
@@ -289,7 +288,7 @@ class GPT3ComCon(discord.Cog, name="GPT3ComCon"):
         )
         embed.add_field(
             name="Total price",
-            value="$" + str(round(self.usage_service.get_usage(), 2)),
+            value=f"${str(round(self.usage_service.get_usage(), 2))}",
             inline=False,
         )
         await ctx.respond(embed=embed)
@@ -333,9 +332,7 @@ class GPT3ComCon(discord.Cog, name="GPT3ComCon"):
             try:
                 # Set the parameter to the value
                 setattr(self.model, parameter, value)
-                await ctx.respond(
-                    "Successfully set the parameter " + parameter + " to " + value
-                )
+                await ctx.respond(f"Successfully set the parameter {parameter} to {value}")
 
                 if parameter == "mode":
                     await ctx.send_followup(
@@ -373,11 +370,10 @@ class GPT3ComCon(discord.Cog, name="GPT3ComCon"):
                 else:
                     await ctx.reply(chunk)
                 first = True
+            elif from_context:
+                await ctx.send_followup(chunk)
             else:
-                if from_context:
-                    await ctx.send_followup(chunk)
-                else:
-                    await ctx.channel.send(chunk)
+                await ctx.channel.send(chunk)
 
     async def queue_debug_message(self, debug_message, debug_channel):
         await self.message_queue.put(Message(debug_message, debug_channel))
@@ -418,72 +414,66 @@ class GPT3ComCon(discord.Cog, name="GPT3ComCon"):
         except Exception as e:
             traceback.print_exc()
             await self.message_queue.put(
-                Message("Error sending debug message: " + str(e), debug_channel)
+                Message(f"Error sending debug message: {str(e)}", debug_channel)
             )
 
     async def check_conversation_limit(self, message):
         # After each response, check if the user has reached the conversation limit in terms of messages or time.
-        if message.author.id in self.conversating_users:
-            # If the user has reached the max conversation length, end the conversation
-            if (
-                self.conversating_users[message.author.id].count
-                >= self.model.max_conversation_length
-            ):
-                await message.reply(
-                    "You have reached the maximum conversation length. You have ended the conversation with GPT3, and it has ended."
-                )
-                await self.end_conversation(message)
+        if message.author.id in self.conversating_users and (
+            self.conversating_users[message.author.id].count
+            >= self.model.max_conversation_length
+        ):
+            await message.reply(
+                "You have reached the maximum conversation length. You have ended the conversation with GPT3, and it has ended."
+            )
+            await self.end_conversation(message)
 
     async def summarize_conversation(self, message, prompt):
         response = await self.model.send_summary_request(prompt)
         summarized_text = response["choices"][0]["text"]
 
-        new_conversation_history = []
-        new_conversation_history.append(self.CONVERSATION_STARTER_TEXT)
-        new_conversation_history.append(
-            "\nThis conversation has some context from earlier, which has been summarized as follows: "
-        )
-        new_conversation_history.append(summarized_text)
-        new_conversation_history.append(
-            "\nContinue the conversation, paying very close attention to things Human told you, such as their name, and personal details.\n"
-        )
-        # Get the last entry from the user's conversation history
-        new_conversation_history.append(
-            self.conversating_users[message.author.id].history[-1] + "\n"
-        )
+        new_conversation_history = [
+            self.CONVERSATION_STARTER_TEXT,
+            "\nThis conversation has some context from earlier, which has been summarized as follows: ",
+            summarized_text,
+            "\nContinue the conversation, paying very close attention to things Human told you, such as their name, and personal details.\n",
+            self.conversating_users[message.author.id].history[-1] + "\n",
+        ]
         self.conversating_users[message.author.id].history = new_conversation_history
 
     # A listener for message edits to redo prompts if they are edited
     @discord.Cog.listener()
     async def on_message_edit(self, before, after):
-        if after.author.id in self.redo_users:
-            if after.id == original_message[after.author.id]:
-                response_message = self.redo_users[after.author.id].response
-                ctx = self.redo_users[after.author.id].ctx
-                await response_message.edit(content="Redoing prompt 🔄...")
+        if (
+            after.author.id in self.redo_users
+            and after.id == original_message[after.author.id]
+        ):
+            response_message = self.redo_users[after.author.id].response
+            ctx = self.redo_users[after.author.id].ctx
+            await response_message.edit(content="Redoing prompt 🔄...")
 
-                edited_content = after.content
-                # If the user is conversing, we need to get their conversation history, delete the last
-                # "Human:" message, create a new Human: section with the new prompt, and then set the prompt to
-                # the new prompt, then send that new prompt as the new prompt.
-                if after.author.id in self.conversating_users:
-                    # Remove the last two elements from the history array and add the new Human: prompt
-                    self.conversating_users[
-                        after.author.id
-                    ].history = self.conversating_users[after.author.id].history[:-2]
-                    self.conversating_users[after.author.id].history.append(
-                        f"\nHuman: {after.content}<|endofstatement|>\n"
-                    )
-                    edited_content = "".join(
-                        self.conversating_users[after.author.id].history
-                    )
-                    self.conversating_users[after.author.id].count += 1
-
-                await self.encapsulated_send(
-                    after.author.id, edited_content, ctx, response_message
+            edited_content = after.content
+            # If the user is conversing, we need to get their conversation history, delete the last
+            # "Human:" message, create a new Human: section with the new prompt, and then set the prompt to
+            # the new prompt, then send that new prompt as the new prompt.
+            if after.author.id in self.conversating_users:
+                # Remove the last two elements from the history array and add the new Human: prompt
+                self.conversating_users[
+                    after.author.id
+                ].history = self.conversating_users[after.author.id].history[:-2]
+                self.conversating_users[after.author.id].history.append(
+                    f"\nHuman: {after.content}<|endofstatement|>\n"
                 )
+                edited_content = "".join(
+                    self.conversating_users[after.author.id].history
+                )
+                self.conversating_users[after.author.id].count += 1
 
-                self.redo_users[after.author.id].prompt = after.content
+            await self.encapsulated_send(
+                after.author.id, edited_content, ctx, response_message
+            )
+
+            self.redo_users[after.author.id].prompt = after.content
 
     @discord.Cog.listener()
     async def on_message(self, message):
@@ -560,7 +550,7 @@ class GPT3ComCon(discord.Cog, name="GPT3ComCon"):
     async def encapsulated_send(
         self, user_id, prompt, ctx, response_message=None, from_g_command=False
     ):
-        new_prompt = prompt + "\nGPTie: " if not from_g_command else prompt
+        new_prompt = prompt if from_g_command else prompt + "\nGPTie: "
 
         from_context = isinstance(ctx, discord.ApplicationContext)
 
@@ -571,7 +561,7 @@ class GPT3ComCon(discord.Cog, name="GPT3ComCon"):
                 raise AttributeError(
                     "User's name contains invalid characters. Cannot set the conversation name to their name."
                 )
-            new_prompt = new_prompt.replace("Human:", ctx.author.name + ":")
+            new_prompt = new_prompt.replace("Human:", f"{ctx.author.name}:")
         except AttributeError:
             pass
 
@@ -645,37 +635,35 @@ class GPT3ComCon(discord.Cog, name="GPT3ComCon"):
                 )
 
             # If we don't have a response message, we are not doing a redo, send as a new message(s)
-            if not response_message:
-                if len(response_text) > self.TEXT_CUTOFF:
-                    await self.paginate_and_send(response_text, ctx)
-                else:
-                    response_message = (
-                        await ctx.respond(
-                            response_text,
-                            view=RedoView(ctx, self, user_id),
-                        )
-                        if from_context
-                        else await ctx.reply(
-                            response_text,
-                            view=RedoView(ctx, self, user_id),
-                        )
+            if response_message:
+                await response_message.edit(content=response_text)
+
+            elif len(response_text) > self.TEXT_CUTOFF:
+                await self.paginate_and_send(response_text, ctx)
+            else:
+                response_message = (
+                    await ctx.respond(
+                        response_text,
+                        view=RedoView(ctx, self, user_id),
                     )
+                    if from_context
+                    else await ctx.reply(
+                        response_text,
+                        view=RedoView(ctx, self, user_id),
+                    )
+                )
 
                     # Get the actual message object of response_message in case it's an WebhookMessage
-                    actual_response_message = (
-                        response_message
-                        if not from_context
-                        else await ctx.fetch_message(response_message.id)
-                    )
+                actual_response_message = (
+                    await ctx.fetch_message(response_message.id)
+                    if from_context
+                    else response_message
+                )
 
-                    self.redo_users[user_id] = RedoUser(
-                        prompt, ctx, ctx, actual_response_message
-                    )
-                    self.redo_users[user_id].add_interaction(actual_response_message.id)
-
-            # We are doing a redo, edit the message.
-            else:
-                await response_message.edit(content=response_text)
+                self.redo_users[user_id] = RedoUser(
+                    prompt, ctx, ctx, actual_response_message
+                )
+                self.redo_users[user_id].add_interaction(actual_response_message.id)
 
             await self.send_debug_message(
                 self.generate_debug_message(prompt, response), self.debug_channel
@@ -684,14 +672,12 @@ class GPT3ComCon(discord.Cog, name="GPT3ComCon"):
             if user_id in self.awaiting_responses:
                 self.awaiting_responses.remove(user_id)
 
-        # Error catching for OpenAI model value errors
         except ValueError as e:
             if from_context:
                 await ctx.send_followup(e)
             else:
                 await ctx.reply(e)
 
-        # General catch case for everything
         except Exception:
             message = "Something went wrong, please try again later. This may be due to upstream issues on the API, or rate limiting."
             await ctx.send_followup(message) if from_context else await ctx.reply(
@@ -752,7 +738,7 @@ class GPT3ComCon(discord.Cog, name="GPT3ComCon"):
     ):
         if private:
             await ctx.defer(ephemeral=True)
-        elif not private:
+        else:
             await ctx.defer()
 
         user = ctx.user
@@ -764,11 +750,7 @@ class GPT3ComCon(discord.Cog, name="GPT3ComCon"):
             await self.deletion_queue(message)
             return
 
-        if not opener:
-            user_id_normalized = user.id
-        else:
-            user_id_normalized = ctx.author.id
-
+        user_id_normalized = ctx.author.id if opener else user.id
         self.conversating_users[user_id_normalized] = User(user_id_normalized)
 
         # Append the starter text for gpt3 to the user's history so it gets concatenated with the prompt later
@@ -776,23 +758,23 @@ class GPT3ComCon(discord.Cog, name="GPT3ComCon"):
             self.conversating_users[user_id_normalized].history.append(
                 self.CONVERSATION_STARTER_TEXT_MINIMAL
             )
-        elif not minimal:
+        else:
             self.conversating_users[user_id_normalized].history.append(
                 self.CONVERSATION_STARTER_TEXT
             )
 
         if private:
-            await ctx.respond(user.name + "'s private conversation with GPT3")
+            await ctx.respond(f"{user.name}'s private conversation with GPT3")
             thread = await ctx.channel.create_thread(
-                name=user.name + "'s private conversation with GPT3",
+                name=f"{user.name}'s private conversation with GPT3",
                 auto_archive_duration=60,
             )
-        elif not private:
-            message_thread = await ctx.respond(user.name + "'s conversation with GPT3")
+        else:
+            message_thread = await ctx.respond(f"{user.name}'s conversation with GPT3")
             # Get the actual message object for the message_thread
             message_thread_real = await ctx.fetch_message(message_thread.id)
             thread = await message_thread_real.create_thread(
-                name=user.name + "'s conversation with GPT3",
+                name=f"{user.name}'s conversation with GPT3",
                 auto_archive_duration=60,
             )
 
@@ -902,12 +884,7 @@ class GPT3ComCon(discord.Cog, name="GPT3ComCon"):
             return
 
         # If only one of the options are set, then this is invalid.
-        if (
-            parameter is None
-            and value is not None
-            or parameter is not None
-            and value is None
-        ):
+        if parameter is None or value is None:
             await ctx.respond(
                 "Invalid settings command. Please use `/settings <parameter> <value>` to change a setting"
             )
@@ -967,7 +944,6 @@ class EndConvoButton(discord.ui.Button["RedoView"]):
                 await interaction.response.send_message(
                     e, ephemeral=True, delete_after=30
                 )
-                pass
         else:
             await interaction.response.send_message(
                 "This is not your conversation to end!", ephemeral=True, delete_after=10

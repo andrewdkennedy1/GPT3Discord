@@ -47,17 +47,13 @@ class DrawDallEService(discord.Cog, name="DrawDallEService"):
 
         try:
             file, image_urls = await self.model.send_image_request(
-                prompt, vary=vary if not draw_from_optimizer else None
+                prompt, vary=None if draw_from_optimizer else vary
             )
         except ValueError as e:
-            (
-                await ctx.channel.send(
-                    f"Error: {e}. Please try again with a different prompt."
-                )
-                if not from_context
-                else await ctx.respond(
-                    f"Error: {e}. Please try again with a different prompt."
-                )
+            await ctx.respond(
+                f"Error: {e}. Please try again with a different prompt."
+            ) if from_context else await ctx.channel.send(
+                f"Error: {e}. Please try again with a different prompt."
             )
             return
 
@@ -65,9 +61,9 @@ class DrawDallEService(discord.Cog, name="DrawDallEService"):
         embed = discord.Embed(
             title="Image Generation Results"
             if not vary
-            else "Image Generation Results (Varying)"
-            if not draw_from_optimizer
-            else "Image Generation Results (Drawing from Optimizer)",
+            else "Image Generation Results (Drawing from Optimizer)"
+            if draw_from_optimizer
+            else "Image Generation Results (Varying)",
             description=f"{prompt}",
             color=0xC730C7,
         )
@@ -78,74 +74,72 @@ class DrawDallEService(discord.Cog, name="DrawDallEService"):
         if not response_message:  # Original generation case
             # Start an interaction with the user, we also want to send data embed=embed, file=file, view=SaveView(image_urls, self, self.converser_cog)
             result_message = (
-                await ctx.channel.send(
+                await ctx.respond(embed=embed, file=file)
+                if from_context
+                else await ctx.channel.send(
                     embed=embed,
                     file=file,
                 )
-                if not from_context
-                else await ctx.respond(embed=embed, file=file)
             )
 
             await result_message.edit(
                 view=SaveView(ctx, image_urls, self, self.converser_cog, result_message)
             )
 
-            self.converser_cog.users_to_interactions[user_id] = []
-            self.converser_cog.users_to_interactions[user_id].append(result_message.id)
-
+            self.converser_cog.users_to_interactions[user_id] = [result_message.id]
             # Get the actual result message object
             if from_context:
                 result_message = await ctx.fetch_message(result_message.id)
 
             redo_users[user_id] = RedoUser(prompt, ctx, ctx, result_message)
 
-        else:
-            if not vary:  # Editing case
-                message = await response_message.edit(
+        elif vary:  # Varying case
+            if not draw_from_optimizer:
+                result_message = await response_message.edit_original_response(
+                    content="Image variation completed!",
                     embed=embed,
                     file=file,
                 )
-                await message.edit(
-                    view=SaveView(ctx, image_urls, self, self.converser_cog, message)
+                await result_message.edit(
+                    view=SaveView(
+                        ctx,
+                        image_urls,
+                        self,
+                        self.converser_cog,
+                        result_message,
+                        True,
+                    )
                 )
-            else:  # Varying case
-                if not draw_from_optimizer:
-                    result_message = await response_message.edit_original_response(
-                        content="Image variation completed!",
-                        embed=embed,
-                        file=file,
-                    )
-                    await result_message.edit(
-                        view=SaveView(
-                            ctx,
-                            image_urls,
-                            self,
-                            self.converser_cog,
-                            result_message,
-                            True,
-                        )
-                    )
 
-                else:
-                    result_message = await response_message.edit_original_response(
-                        content="I've drawn the optimized prompt!",
-                        embed=embed,
-                        file=file,
-                    )
-                    await result_message.edit(
-                        view=SaveView(
-                            ctx, image_urls, self, self.converser_cog, result_message
-                        )
-                    )
-
-                    redo_users[user_id] = RedoUser(prompt, ctx, ctx, result_message)
-
-                self.converser_cog.users_to_interactions[user_id].append(
-                    response_message.id
+            else:
+                result_message = await response_message.edit_original_response(
+                    content="I've drawn the optimized prompt!",
+                    embed=embed,
+                    file=file,
                 )
-                self.converser_cog.users_to_interactions[user_id].append(
-                    result_message.id
+                await result_message.edit(
+                    view=SaveView(
+                        ctx, image_urls, self, self.converser_cog, result_message
+                    )
                 )
+
+                redo_users[user_id] = RedoUser(prompt, ctx, ctx, result_message)
+
+            self.converser_cog.users_to_interactions[user_id].append(
+                response_message.id
+            )
+            self.converser_cog.users_to_interactions[user_id].append(
+                result_message.id
+            )
+
+        else:  # Editing case
+            message = await response_message.edit(
+                embed=embed,
+                file=file,
+            )
+            await message.edit(
+                view=SaveView(ctx, image_urls, self, self.converser_cog, message)
+            )
 
     @add_to_group("dalle")
     @discord.slash_command(
@@ -227,9 +221,7 @@ class SaveView(discord.ui.View):
         no_retry=False,
         only_save=None,
     ):
-        super().__init__(
-            timeout=3600 if not only_save else None
-        )  # 1 hour timeout for Retry, Save
+        super().__init__(timeout=None if only_save else 3600)
         self.ctx = ctx
         self.image_urls = image_urls
         self.cog = cog
@@ -271,7 +263,9 @@ class SaveView(discord.ui.View):
 
 class VaryButton(discord.ui.Button):
     def __init__(self, number, image_url, cog, converser_cog):
-        super().__init__(style=discord.ButtonStyle.blurple, label="Vary " + str(number))
+        super().__init__(
+            style=discord.ButtonStyle.blurple, label=f"Vary {str(number)}"
+        )
         self.number = number
         self.image_url = image_url
         self.cog = cog
@@ -301,7 +295,7 @@ class VaryButton(discord.ui.Button):
 
         if user_id in redo_users:
             response_message = await interaction.response.send_message(
-                content="Varying image number " + str(self.number) + "..."
+                content=f"Varying image number {str(self.number)}..."
             )
             self.converser_cog.users_to_interactions[user_id].append(
                 response_message.message.id
@@ -324,7 +318,7 @@ class VaryButton(discord.ui.Button):
 
 class SaveButton(discord.ui.Button["SaveView"]):
     def __init__(self, number: int, image_url: str):
-        super().__init__(style=discord.ButtonStyle.gray, label="Save " + str(number))
+        super().__init__(style=discord.ButtonStyle.gray, label=f"Save {number}")
         self.number = number
         self.image_url = image_url
 
@@ -377,7 +371,7 @@ class RedoButton(discord.ui.Button["SaveView"]):
             prompt = redo_users[user_id].prompt
             response_message = redo_users[user_id].response
             message = await interaction.response.send_message(
-                f"Regenerating the image for your original prompt, check the original message.",
+                "Regenerating the image for your original prompt, check the original message.",
                 ephemeral=True,
             )
             self.converser_cog.users_to_interactions[user_id].append(message.id)

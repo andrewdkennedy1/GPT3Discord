@@ -100,11 +100,7 @@ class ImgPromptOptimizer(discord.Cog, name="ImgPromptOptimizer"):
                 .replace("Output:", "")
             )
 
-            self.converser_cog.users_to_interactions[user.id] = []
-            self.converser_cog.users_to_interactions[user.id].append(
-                response_message.id
-            )
-
+            self.converser_cog.users_to_interactions[user.id] = [response_message.id]
             self.converser_cog.redo_users[user.id] = RedoUser(
                 final_prompt, ctx, ctx, response_message
             )
@@ -115,12 +111,10 @@ class ImgPromptOptimizer(discord.Cog, name="ImgPromptOptimizer"):
                 )
             )
 
-        # Catch the value errors raised by the Model object
         except ValueError as e:
             await ctx.respond(e)
             return
 
-        # Catch all other errors, we want this to keep going if it errors out.
         except Exception as e:
             await ctx.respond("Something went wrong, please try again later")
             await ctx.send_followup(e)

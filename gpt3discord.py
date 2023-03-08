@@ -8,12 +8,8 @@ from dotenv import load_dotenv
 from pycord.multicog import apply_multicog
 import os
 
-if sys.platform == "win32":
-    separator = "\\"
-else:
-    separator = "/"
-
-print("The environment file is located at " + os.getcwd() + separator + ".env")
+separator = "\\" if sys.platform == "win32" else "/"
+print(f"The environment file is located at {os.getcwd()}{separator}.env")
 load_dotenv(dotenv_path=os.getcwd() + separator + ".env")
 
 from cogs.draw_image_generation import DrawDallEService
@@ -60,9 +56,7 @@ async def on_ready():  # I can make self optional by
 async def on_application_command_error(
     ctx: discord.ApplicationContext, error: discord.DiscordException
 ):
-    if isinstance(error, discord.CheckFailure):
-        pass
-    else:
+    if not isinstance(error, discord.CheckFailure):
         raise error
 
 
@@ -125,7 +119,7 @@ def init():
     else:
         with open(PID_FILE, "w") as f:
             f.write(str(os.getpid()))
-            print("" "Wrote PID to f" "ile the file " + PID_FILE)
+            print(f"Wrote PID to file the file {PID_FILE}")
             f.close()
     try:
         asyncio.get_event_loop().run_until_complete(main())
@@ -134,7 +128,7 @@ def init():
         os.remove(PID_FILE)
     except Exception as e:
         traceback.print_exc()
-        print(str(e))
+        print(e)
         print("Removing PID file")
         os.remove(PID_FILE)
     finally:
